@@ -1,0 +1,44 @@
+# Visual Studio-specific ignores
+.vscode/
+.vs/
+/bin/
+/obj/
+/.idea/
+*.suo
+*.user
+*.sdf
+*.dbmdl
+*.opensdf
+*.VC.db
+
+# CLion-specific ignores
+.cmake/
+.idea/
+.clangd/
+compile_commands.json
+CMakeFiles/
+cmake-build-debug/
+cmake-build-release/
+clion-*.log
+
+# Linux Make-specific ignores
+Makefile
+Makefile.in
+Makefile.am
+autom4te.cache/
+config.log
+config.status
+*.swp
+
+# Compiled files and executables
+*.o
+*.out
+*.dll
+*.so
+*.exe
+
+# Dependency files
+*.d
+
+# folders
+build/
