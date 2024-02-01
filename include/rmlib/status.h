@@ -48,6 +48,20 @@ namespace rmlib {
          return errno;
       }
       
+      #if defined(XPLAT_OS_WIN)
+      inline std::string error_text(int err) noexcept
+      {
+         std::array<char, status::MAX_ERROR_STRING> text;
+         strerror_s(text.data(), text.size(), err);
+         return std::string(text.data());
+      }
+      #else
+      inline std::string error_text(int err) noexcept
+      {
+         return std::string(strerror(err));
+      }
+      #endif
+
    } // namespace status
    
    template <typename T = int, T OK = status::OK, T NOK = status::NOTOK, status::STATUS_FUNC FUNC = status::last_error>
@@ -101,12 +115,7 @@ namespace rmlib {
       {
          if (this->errno_ != OK)
          {
-            /*
-            std::array<char, status::MAX_ERROR_STRING> text;
-            strerror_s(text.data(), text.size(), errno_);
-            return std::string(text.data());
-             */
-            return std::string(strerror(this->errno_));
+            return status::error_text(this->errno_);
          }
          return "No errors detected";
       }
