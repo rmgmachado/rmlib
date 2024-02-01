@@ -58,7 +58,7 @@ namespace rmlib {
       #else
       inline std::string error_text(int err) noexcept
       {
-         return std::string(strerror(err));
+         return std::string{strerror(err) };
       }
       #endif
 
@@ -78,9 +78,6 @@ namespace rmlib {
       status_t& operator=(const status_t&) = default;
       status_t& operator=(status_t&&) noexcept = default;
 
-      virtual ~status_t() noexcept
-      {}
-
       status_t(error_t err) noexcept
          : errno_{ err == NOK ? FUNC() : err }
       {}
@@ -91,11 +88,13 @@ namespace rmlib {
          return *this;
       }
 
+      [[nodiscard]]
       bool ok() const noexcept
       {
          return this->errno_ == OK;
       }
 
+      [[nodiscard]]
       bool nok() const noexcept
       {
          return !ok();
@@ -111,6 +110,7 @@ namespace rmlib {
          this->errno_ = OK;
       }
 
+      [[nodiscard]]
       virtual std::string reason() const noexcept
       {
          if (this->errno_ != OK)
