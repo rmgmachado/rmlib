@@ -31,6 +31,7 @@
 #include <string>
 #include <array>
 #include <vector>
+#include <atomic>
 
 #include <openssl/ssl.h>
 #include <openssl/err.h>
@@ -69,6 +70,7 @@
    #include <sys/socket.h>
    #include <sys/ioctl.h>
    #include <sys/epoll.h>
+   #include <arpa/inet.h>
    #include <netdb.h>
    #include <unistd.h>
    #include <fcntl.h>
@@ -338,8 +340,7 @@ namespace rmlib {
 
          std::string url() const noexcept
          {
-            auto [port, notation] = notation_and_port();
-            return std::format("{}:{}", notation, port);
+            return dot_notation() + ":" + std::to_string(port());
          }
 
       private:
@@ -983,7 +984,7 @@ namespace rmlib {
          uid_ = counter.fetch_add(1, std::memory_order_relaxed);
       }
 
-      SHORT set_events(socket_event_t event) const noexcept
+      short set_events(socket_event_t event) const noexcept
       {
          using enum socket_event_t;
          return (event == recv_ready || event == accept_ready) ? POLLRDNORM : POLLWRNORM;
