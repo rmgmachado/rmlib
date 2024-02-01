@@ -31,12 +31,14 @@
 #include <string>
 #include <array>
 #include <vector>
+#include <atomic>
 
 #include <openssl/ssl.h>
 #include <openssl/err.h>
 #include <openssl/crypto.h>
 #include <openssl/x509.h>
 
+#include "rmlib/xplat.h"
 #include "rmlib/utility.h"
 #include "rmlib/status.h"
 
@@ -73,6 +75,7 @@
    #include <sys/socket.h>
    #include <sys/ioctl.h>
    #include <sys/epoll.h>
+   #include <arpa/inet.h>
    #include <netdb.h>
    #include <unistd.h>
    #include <fcntl.h>
@@ -86,6 +89,7 @@
    using LPWSAPOLLFD = struct pollfd*;
    using ADDRINFOA = struct addrinfo;
    using PADDRINFOA = struct addrinfo*;
+   using SOCKADDR = sockaddr;
 
    inline int WSAGetLastError() noexcept { return errno; }
    inline int closesocket(SOCKET fd) noexcept { return ::close(fd); }
@@ -114,6 +118,7 @@
    struct WSADATA { int wsadata_{}; };
    void WSAStartup(unsigned, WSADATA*) {}
    void WSACleanup() {}
+
 #endif
 
 namespace rmlib {
@@ -886,7 +891,7 @@ namespace rmlib {
          uid_ = counter.fetch_add(1, std::memory_order_relaxed);
       }
 
-      SHORT set_events(socket_event_t event) const noexcept
+      short set_events(socket_event_t event) const noexcept
       {
          using enum socket_event_t;
          return (event == recv_ready || event == accept_ready) ? POLLRDNORM : POLLWRNORM;
@@ -1053,6 +1058,8 @@ namespace rmlib {
 
    namespace socket::internal {
 
+   #if defined(_MSC_VER)
+
       /**********************************************************************\
       *
       *  winsock_init_t
@@ -1088,6 +1095,7 @@ namespace rmlib {
       }; // class socket_init_t
 
       inline const static winsock_init_t socket_startup_;
+   #endif
 
       class openssl_t
       {

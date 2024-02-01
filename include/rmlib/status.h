@@ -30,7 +30,8 @@
 #include <cstring>
 #include <string>
 #include <array>
-#include <format>
+
+#include "rmlib/xplat.h"
 
 namespace rmlib {
    
@@ -72,13 +73,13 @@ namespace rmlib {
 
       status_t& operator=(error_t err) noexcept
       {
-         errno_ = (err == NOK) ? FUNC() : err;
+         this->errno_ = (err == NOK) ? FUNC() : err;
          return *this;
       }
 
       bool ok() const noexcept
       {
-         return errno_ == OK;
+         return this->errno_ == OK;
       }
 
       bool nok() const noexcept
@@ -88,21 +89,24 @@ namespace rmlib {
 
       error_t error() const noexcept
       {
-         return errno_;
+         return this->errno_;
       }
 
       void clear() noexcept
       {
-         errno_ = OK;
+         this->errno_ = OK;
       }
 
       virtual std::string reason() const noexcept
       {
-         if (errno_ != OK)
+         if (this->errno_ != OK)
          {
+            /*
             std::array<char, status::MAX_ERROR_STRING> text;
             strerror_s(text.data(), text.size(), errno_);
             return std::string(text.data());
+             */
+            return std::string(strerror(this->errno_));
          }
          return "No errors detected";
       }
