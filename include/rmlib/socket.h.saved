@@ -31,6 +31,7 @@
 #include <string>
 #include <array>
 #include <vector>
+#include <atomic>
 
 #include <openssl/ssl.h>
 #include <openssl/err.h>
@@ -39,14 +40,17 @@
 
 #include "rmlib/xplat.h"
 #include "rmlib/utility.h"
-#include "rmlib/time.h"
+#include "rmlib/status.h"
+
 
 /*****************************************************************************\
 *
 *  Windows specific definitionss
 *
 \*****************************************************************************/
-#if defined(XPLAT_OS_WIN)
+#if defined(_MSC_VER)
+   #define NETPUNE_WIN32
+
    #include <winsock2.h>
    #include <ws2tcpip.h>
 
@@ -64,11 +68,14 @@
 *  Linux specific definitions
 *
 \*****************************************************************************/
-#if defined(XPLAT_OS_LINUX)
+#if defined(__GNUC__)
+   #define NETPUNE_LINUX
+
    #include <sys/types.h>
    #include <sys/socket.h>
    #include <sys/ioctl.h>
    #include <sys/epoll.h>
+   #include <arpa/inet.h>
    #include <netdb.h>
    #include <unistd.h>
    #include <fcntl.h>
@@ -82,7 +89,7 @@
    using LPWSAPOLLFD = struct pollfd*;
    using ADDRINFOA = struct addrinfo;
    using PADDRINFOA = struct addrinfo*;
-   using SOCKADDR = struct sockaddr;
+   using SOCKADDR = sockaddr;
 
    inline int WSAGetLastError() noexcept { return errno; }
    inline int closesocket(SOCKET fd) noexcept { return ::close(fd); }
@@ -107,6 +114,10 @@
    #define SD_SEND      SHUT_WR
    #define SD_RECEIVE   SHUT_RD
    #define SD_BOTH      SHUT_RDWR
+
+   struct WSADATA { int wsadata_{}; };
+   void WSAStartup(unsigned, WSADATA*) {}
+   void WSACleanup() {}
 
 #endif
 
@@ -153,23 +164,23 @@ namespace rmlib {
             using enum status_code_t;
             switch (error_)
             {
-            case SSL_ERROR_NONE: error_ = 0; break;
-            case SSL_ERROR_ZERO_RETURN: code_ = closing; break;
-            case SSL_ERROR_WANT_READ: code_ = want_read; break;
-            case SSL_ERROR_WANT_WRITE: code_ = want_write; break;
-            case SSL_ERROR_SYSCALL:
-            {
-               if (ERR_peek_last_error() != 0)
+               case SSL_ERROR_NONE: error_ = 0; break;
+               case SSL_ERROR_ZERO_RETURN: code_ = closing; break;
+               case SSL_ERROR_WANT_READ: code_ = want_read; break;
+               case SSL_ERROR_WANT_WRITE: code_ = want_write; break;
+               case SSL_ERROR_SYSCALL:
                {
-                  status_t(fatal);
+                  if (ERR_peek_last_error() != 0)
+                  {
+                     status_t(fatal);
+                  }
+                  else
+                  {
+                     status_t{ WSAGetLastError() };
+                  }
+                  break;
                }
-               else
-               {
-                  status_t{ WSAGetLastError() };
-               }
-               break;
-            }
-            default: status_t(fatal); break;
+               default: status_t(fatal); break;
             }
          }
 
@@ -247,9 +258,9 @@ namespace rmlib {
             return std::string("No errors detected");
          }
       }; // class status_t
-
+   
    } // namespace socket
-
+   
    namespace ip {
 
       struct info_t
@@ -326,42 +337,40 @@ namespace rmlib {
 
          unsigned port() const noexcept
          {
-            auto [port, notation] = notation_and_port();
-            return port;
+            uint16_t port_num{};
+            if (addr_.sa_family == AF_INET) // IPv4
+            {
+               auto addr_in = (struct sockaddr_in*)&addr_;
+               port_num = ntohs(addr_in->sin_port);
+            }
+            else if (addr_.sa_family == AF_INET6) // IPv6
+            {
+               auto addr_in6 = (struct sockaddr_in6*)&addr_;
+               port_num = ntohs(addr_in6->sin6_port);
+            }
+            return port_num;
          }
 
          std::string dot_notation() const noexcept
          {
-            auto [port, notation] = notation_and_port();
-            return notation;
+            char ipStr[INET6_ADDRSTRLEN] = "Unkown AF";
+
+            if (addr_.sa_family == AF_INET) // IPv4
+            {
+               auto addr_in = (struct sockaddr_in*)&addr_;
+               inet_ntop(AF_INET, &(addr_in->sin_addr), ipStr, sizeof(ipStr));
+            }
+            else if (addr_.sa_family == AF_INET6) // IPv6
+            {
+               auto addr_in6 = (struct sockaddr_in6*)&addr_;
+               inet_ntop(AF_INET6, &(addr_in6->sin6_addr), ipStr, sizeof(ipStr));
+            }
+            return ipStr;
          }
 
          std::string url() const noexcept
          {
-            auto [port, notation] = notation_and_port();
-            return std::format("{}:{}", notation, port);
-         }
-
-      private:
-         std::pair<uint16_t, std::string> notation_and_port() const noexcept
-         {
-            std::array<char, INET6_ADDRSTRLEN> ipStr{ "Unkown AF" };
-            uint16_t port_num{};
-
-            if (addr_.sa_family == AF_INET) // IPv4
-            {
-               auto addr_in = reinterpret_cast<const struct sockaddr_in*>(&addr_);
-               inet_ntop(AF_INET, &(addr_in->sin_addr), ipStr.data(), ipStr.size());
-               port_num = ntohs(addr_in->sin_port);
-
-            }
-            else if (addr_.sa_family == AF_INET6) // IPv6
-            {
-               auto addr_in6 = reinterpret_cast<const struct sockaddr_in6*>(&addr_);
-               inet_ntop(AF_INET6, &(addr_in6->sin6_addr), ipStr.data(), ipStr.size());
-               port_num = ntohs(addr_in6->sin6_port);
-            }
-            return std::make_pair(port_num, std::string(ipStr.data()));
+            return dot_notation() + ":" + std::to_string(port());
          }
       }; // class address_t
 
@@ -457,7 +466,7 @@ namespace rmlib {
       class context_t
       {
          SSL_CTX* ctx_{ nullptr };
-        socket::status_t status_;
+         socket::status_t status_;
 
       public:
          context_t() = default;
@@ -481,14 +490,14 @@ namespace rmlib {
             create(type, cert_pem_file, key_pem_file);
          }
 
-        socket::status_t set_verify(const char* pem_file) noexcept
+         socket::status_t set_verify(const char* pem_file) noexcept
          {
-            status_ =socket::status_t();
+            status_ = socket::status_t();
             SSL_CTX_set_verify(ctx_, SSL_VERIFY_PEER, nullptr);
             SSL_CTX_set_verify_depth(ctx_, 4);
             if (int ret = SSL_CTX_load_verify_locations(ctx_, pem_file, nullptr); ret != 1)
             {
-               status_ =socket::status_t(status_code_t::fatal);
+               status_ = socket::status_t(status_code_t::fatal);
             }
             return status_;
          }
@@ -507,7 +516,7 @@ namespace rmlib {
             return ctx_;
          }
 
-        socket::status_t status() const noexcept
+         socket::status_t status() const noexcept
          {
             return status_;
          }
@@ -529,7 +538,7 @@ namespace rmlib {
          {
             if (ctx_ = SSL_CTX_new(type == context_type_t::client ? TLS_client_method() : TLS_server_method()); !ctx_)
             {
-               status_ =socket::status_t(status_code_t::fatal);
+               status_ = socket::status_t(status_code_t::fatal);
             }
          }
 
@@ -546,7 +555,7 @@ namespace rmlib {
          {
             if (status_.ok() && cert_pem_file && SSL_CTX_use_certificate_file(ctx_, cert_pem_file, SSL_FILETYPE_PEM) <= 0)
             {
-               status_ =socket::status_t(status_code_t::fatal);
+               status_ = socket::status_t(status_code_t::fatal);
             }
          }
 
@@ -554,7 +563,7 @@ namespace rmlib {
          {
             if (status_.ok() && key_pem_file && SSL_CTX_use_PrivateKey_file(ctx_, key_pem_file, SSL_FILETYPE_PEM) <= 0)
             {
-               status_ =socket::status_t(status_code_t::fatal);
+               status_ = socket::status_t(status_code_t::fatal);
             }
          }
 
@@ -575,9 +584,8 @@ namespace rmlib {
         idle         // socket_t object not connected or closed
       , created      // underlying SOCKET handle created
       , connecting   // TLS handshake in progress for connect
-      , connected    // socket_t connected
-      , listening    // spocket_t is listening for connections
       , accepting    // TLS handshake in progress for accept
+      , connected    // socket_t connected
    };
    
    using wait_timeout_t = int;
@@ -597,119 +605,44 @@ namespace rmlib {
 
    class socket_t
    {
+      struct SSL_deleter
+      {
+         void operator()(SSL* ssl) const
+         {
+            if (ssl)
+            {
+               SSL_free(ssl);
+            }
+         }
+      };
+
       SOCKET handle_{ INVALID_SOCKET };
-      SSL* ssl_{};
-      SSL_CTX* ctx_{};
+      std::unique_ptr<SSL, SSL_deleter> ssl_;
+      SSL_CTX* ctx_{ nullptr };
       uid_t uid_{};
       socket_mode_t mode_{ socket_mode_t::blocking };
       socket_state_t state_{ socket_state_t::idle };
-      unsigned* ref_count_{};
-      timer_t send_timer_;
-      timer_t recv_timer_;
 
    public:
       // create a TCP socket
-      socket_t() noexcept
-         : ref_count_(new unsigned(1))
-      {}
+      socket_t() = default;
 
+      // disable copy and assignment
+      // enable move constructor and move assignment
+      socket_t(const socket_t&) = delete;
+      socket_t(socket_t&&) noexcept = default;
+      socket_t& operator=(const socket_t&) = delete;
+      socket_t& operator=(socket_t&&) noexcept = default;
 
-      // create a TLS or TCP socket
+      // create a TLS socket
       explicit socket_t(tls::context_t& ctx) noexcept
-         : ctx_{ ctx() }
-         , ref_count_(new unsigned(1))
-      {}
-
-      ~socket_t() noexcept
+         : ctx_{ctx()}
       {
-         close();
-      }
-
-      socket_t(const socket_t& other) noexcept
-         : handle_{ other.handle_ }
-         , ssl_{ other.ssl_ }
-         , ctx_{ other.ctx_ }
-         , uid_{ other.uid_ }
-         , mode_{ other.mode_ }
-         , state_{ other.state_ }
-         , ref_count_{ other.ref_count_}
-         , send_timer_{ other.send_timer_ }
-         , recv_timer_{ other.recv_timer_ }
-      {
-         if (ref_count_)
+         if (ctx_)
          {
-            ++(*ref_count_);
+            // if TLS context is no null, create a TLS socket
+            ssl_.reset(SSL_new(ctx_));
          }
-      }
-
-      socket_t(socket_t&& other) noexcept
-         : handle_{ other.handle_ }
-         , ssl_{ other.ssl_ }
-         , ctx_{ other.ctx_ }
-         , uid_{ other.uid_ }
-         , mode_{ other.mode_ }
-         , state_{ other.state_ }
-         , ref_count_{ other.ref_count_ }
-         , send_timer_{ other.send_timer_ }
-         , recv_timer_{ other.recv_timer_ }
-      {
-         other.handle_ = INVALID_SOCKET;
-         other.ssl_ = nullptr;
-         other.ctx_ = nullptr;
-         other.uid_ = 0;
-         other.mode_ = socket_mode_t::blocking;
-         other.state_ = socket_state_t::idle;
-         other.ref_count_ = nullptr;
-      }
-
-      socket_t& operator=(const socket_t& other) noexcept
-      {
-         if (this != &other)
-         {
-            close();
-            handle_ = other.handle_;
-            ssl_ = other.ssl_;
-            ctx_ = other.ctx_;
-            uid_ = other.uid_;
-            mode_ = other.mode_;
-            state_ = other.state_;
-            ref_count_ = other.ref_count_;
-            send_timer_ = other.send_timer_;
-            recv_timer_ = other.recv_timer_;
-            if (ref_count_)
-            {
-               ++(*ref_count_);
-            }
-         }
-         return *this;
-      }
-
-      socket_t& operator=(socket_t&& other) noexcept
-      {
-         if (this != &other)
-         {
-            // cleanup
-            close();
-            // transfer resources
-            handle_ = other.handle_;
-            ssl_ = other.ssl_;
-            ctx_ = other.ctx_;
-            uid_ = other.uid_;
-            mode_ = other.mode_;
-            state_ = other.state_;
-            ref_count_ = other.ref_count_;
-            send_timer_ = other.send_timer_;
-            recv_timer_ = other.recv_timer_;
-            // invalidate other
-            other.handle_ = INVALID_SOCKET;
-            other.ssl_ = nullptr;
-            other.ctx_ = nullptr;
-            other.uid_ = 0;
-            other.mode_ = socket_mode_t::blocking;
-            other.state_ = socket_state_t::idle;
-            other.ref_count_ = nullptr;
-         }
-         return *this;
       }
 
       SOCKET handle() const noexcept
@@ -732,34 +665,14 @@ namespace rmlib {
          return state_;
       }
 
-      long long send_elapsed_usecs() const noexcept
-      {
-         return send_timer_.elapsed();
-      }
-
-      long long recv_elapsed_usecs() const noexcept
-      {
-         return recv_timer_.elapsed();
-      }
-
-      void send_timer_reset() noexcept
-      {
-         send_timer_.reset();
-      }
-
-      void recv_timer_reset() noexcept
-      {
-         recv_timer_.reset();
-      }
-
       const SSL* ssl() const noexcept
       {
-         return ssl_;
+         return ssl_.get();
       }
 
       SSL* ssl() noexcept
       {
-         return ssl_;
+         return ssl_.get();
       }
 
       const SSL_CTX* ctx() const noexcept
@@ -787,16 +700,16 @@ namespace rmlib {
 
          if (!ssl_) return true;
          if (state_ != socket_state_t::connected) return false;
-         if (std::unique_ptr<X509, X509_deleter> peer_certificate(SSL_get_peer_certificate(ssl_)); peer_certificate)
+         if (std::unique_ptr<X509, X509_deleter> peer_certificate(SSL_get_peer_certificate(ssl_.get())); peer_certificate)
          {
-            return SSL_get_verify_result(ssl_) == X509_V_OK;
+            return SSL_get_verify_result(ssl_.get()) == X509_V_OK;
          }
          return false;
       }
 
-     socket::status_t connect(const ip::address_t& server, socket_mode_t mode = socket_mode_t::blocking) noexcept
+      socket::status_t connect(const ip::address_t& server, socket_mode_t mode = socket_mode_t::blocking) noexcept
       {
-        socket::status_t status = tcp_connect(server, mode);
+         socket::status_t status = tcp_connect(server, mode);
          if (status.ok() && ssl_)
          {
             status = ssl_connect();
@@ -815,9 +728,9 @@ namespace rmlib {
          {
             if (ssl_)
             {
-               if (int ret = SSL_shutdown(ssl_); ret != 0)
+               if (int ret = SSL_shutdown(ssl_.get()); ret != 0)
                {
-                  ssl_status = socket::status_t{ ssl_, ret };
+                  ssl_status = socket::status_t{ ssl_.get(), ret };
                }
             }
             tcp_status = socket::status_t{ ::shutdown(handle_, static_cast<int>(how)) };
@@ -842,7 +755,6 @@ namespace rmlib {
                if (status = set_blocking(mode); status.ok())
                {
                   generate_uid();
-                  state_ = socket_state_t::listening;
                }
             }
          }
@@ -858,10 +770,10 @@ namespace rmlib {
          socket::status_t status = tcp_accept(client, mode);
          if (status.ok() && state_ == socket_state_t::accepting)
          {
-            int ret{ SSL_accept(client.ssl_) };
+            int ret{ SSL_accept(client.ssl_.get()) };
             if (ret <= 0)
             {
-               if (status = socket::status_t{ client.ssl_, ret }; status.ok())
+               if (status = socket::status_t{ client.ssl_.get(), ret }; status.ok())
                {
                   client.state_ = socket_state_t::connected;
                }
@@ -869,10 +781,6 @@ namespace rmlib {
                {
                   close();
                }
-            }
-            else
-            {
-               state_ = socket_state_t::listening;
             }
          }
          return status;
@@ -923,7 +831,7 @@ namespace rmlib {
       // SOCKET_WAIT_NEVER to return immediately after checking
       // greater than zero value sets milli-seconds to wait until event occurs
       // wait succeeds:
-      //   status_t::ok() == true, status_t::nok() == false, status_t::would_block() == false
+      //    status_t::ok() == true, status_t::nok() == false, status_t::would_block() == false
       //
       // wait timeout
       //    status_t::ok() == false, status_t::nok() == true, status_t::would_block() == true
@@ -983,7 +891,7 @@ namespace rmlib {
          uid_ = counter.fetch_add(1, std::memory_order_relaxed);
       }
 
-      SHORT set_events(socket_event_t event) const noexcept
+      short set_events(socket_event_t event) const noexcept
       {
          using enum socket_event_t;
          return (event == recv_ready || event == accept_ready) ? POLLRDNORM : POLLWRNORM;
@@ -1004,42 +912,20 @@ namespace rmlib {
          {
             return socket::status_t{ last_error() };
          }
-         if (ctx_)
-         {
-            ssl_ = SSL_new(ctx_);
-         }
-         state_ = socket_state_t::created;
-         mode_ = socket_mode_t::blocking;
          return socket::status_t();
       }
 
       socket::status_t close() noexcept
       {
          socket::status_t status;
-         if (ref_count_)
+         if (handle_ == INVALID_SOCKET) return status;
+         if (status = socket::status_t{ ::closesocket(handle_) }; status.ok())
          {
-            if (*ref_count_ == 1)
-            {
-               if (handle_ != INVALID_SOCKET)
-               {
-                  status = socket::status_t{ ::closesocket(handle_) };
-                  handle_ = INVALID_SOCKET;
-                  uid_ = 0;
-                  mode_ = socket_mode_t::blocking;
-                  state_ = socket_state_t::idle;
-               }
-               if (ssl_)
-               {
-                  SSL_free(ssl_);
-                  ssl_ = nullptr;
-               }
-               delete ref_count_;
-               ref_count_ = nullptr;
-            }
-            else
-            {
-               --(*ref_count_);
-            }
+            handle_ = INVALID_SOCKET;
+            if (ssl_) ssl_.release();
+            uid_ = 0;
+            mode_ = socket_mode_t::blocking;
+            state_ = socket_state_t::idle;
          }
          return status;
       }
@@ -1048,7 +934,7 @@ namespace rmlib {
       {
          using enum socket_state_t;
          if (state_ == connecting) return socket::status_t{};
-         if (state_ != idle) return socket::status_t{ WSAEALREADY };
+         if (state_ == connected) return socket::status_t{ WSAEALREADY };
          socket::status_t status;
          if (create(server.family()); status.ok())
          {
@@ -1066,19 +952,17 @@ namespace rmlib {
          state_ = connected;
          if (ssl_)
          {
-            SSL_set_fd(ssl_, static_cast<int>(handle_));
+            SSL_set_fd(ssl_.get(), static_cast<int>(handle_));
             state_ = connecting;
          }
-         send_timer_.reset();
-         recv_timer_.reset();
          return status;
       }
 
       socket::status_t ssl_connect() noexcept
       {
-         if (int ret{ SSL_connect(ssl_) }; ret <= 0)
+         if (int ret{ SSL_connect(ssl_.get()) }; ret <= 0)
          {
-            socket::status_t status{ ssl_, ret };
+            socket::status_t status{ ssl_.get(), ret };
             if (!status.ok() && !status.would_block())
             {
                close();
@@ -1093,34 +977,33 @@ namespace rmlib {
       {
          socket::status_t status;
          if (state_ == socket_state_t::accepting) return status;
-         socket_t socket;
+         SOCKET socket{ INVALID_SOCKET };
          sockaddr name{};
          socklen_t namelen{};
-         if (socket.handle_ = ::accept(handle_, &name, &namelen); socket.handle_ == INVALID_SOCKET)
+         if (socket = ::accept(handle_, &name, &namelen); socket == INVALID_SOCKET)
          {
             return socket::status_t{ last_error() };
          }
-         if (status = socket.set_blocking(mode); status.nok())
+         if (status = set_blocking(mode); status.nok())
          {
-            socket.close();
+            client.close();
             return status;
          }
-         socket.mode_ = mode;
-         socket.state_ = socket_state_t::connected;
-         socket.generate_uid();
+         client.mode_ = mode;
+         client.handle_ = socket;
+         client.state_ = socket_state_t::connected;
+         client.generate_uid();
          if (ssl_)
          {
-            socket.ctx_ = ctx_;
-            socket.ssl_ = SSL_new(ctx_);
-            SSL_set_fd(socket.ssl_, static_cast<int>(socket.handle_));
+            client.ctx_ = ctx_;
+            client.ssl_.reset(SSL_new(ctx()));
+            SSL_set_fd(client.ssl_.get(), static_cast<int>(client.handle_));
+            client.state_ = socket_state_t::accepting;
          }
-         client = socket;
-         client.send_timer_.reset();
-         client.recv_timer_.reset();
          return status;
       }
 
-      socket::status_t tcp_send(const char* buffer, size_t len, size_t& bytes_sent) noexcept
+      socket::status_t tcp_send(const char* buffer, size_t len, size_t& bytes_sent) const noexcept
       {
          if (state_ != socket_state_t::connected) return socket::status_t{ WSAENOTCONN };
          int ret = ::send(handle_, buffer, static_cast<int>(len), 0);
@@ -1129,22 +1012,20 @@ namespace rmlib {
             return socket::status_t{ last_error(), status_code_t::want_write };
          }
          bytes_sent = static_cast<size_t>(ret);
-         send_timer_.reset();
          return socket::status_t();
       }
 
       socket::status_t ssl_send(const char* buffer, size_t len, size_t& bytes_sent) noexcept
       {
          if (state_ != socket_state_t::connected) return socket::status_t{ WSAENOTCONN };
-         if (int ret = SSL_write_ex(ssl_, buffer, len, &bytes_sent); ret <= 0)
+         if (int ret = SSL_write_ex(ssl_.get(), buffer, len, &bytes_sent); ret <= 0)
          {
-            return socket::status_t{ ssl_, ret };
+            return socket::status_t{ ssl_.get(), ret};
          }
-         send_timer_.reset();
          return socket::status_t();
       }
 
-      // if status_t::ok() == true and bytes_received == 0, then peer closing connection
+      // if socket::status_t::ok() == true and bytes_received == 0, then peer closing connection
       socket::status_t tcp_recv(char* buffer, size_t len, size_t& bytes_received) noexcept
       {
          if (state_ != socket_state_t::connected) return socket::status_t{ WSAENOTCONN };
@@ -1159,26 +1040,26 @@ namespace rmlib {
             return socket::status_t{ 0, status_code_t::closing };
          }
          bytes_received = static_cast<size_t>(ret);
-         recv_timer_.reset();
          return socket::status_t();
       }
 
       socket::status_t ssl_recv(char* buffer, size_t len, size_t& bytes_received) noexcept
       {
          if (state_ != socket_state_t::connected) return socket::status_t{ WSAENOTCONN };
-         if (int ret = SSL_read_ex(ssl_, buffer, len, &bytes_received); ret <= 0)
+         int ret = SSL_read_ex(ssl_.get(), buffer, len, &bytes_received);
+         if (ret <= 0)
          {
-            return socket::status_t{ ssl_, ret};
+            return socket::status_t{ ssl_.get(), ret};
          }
-         recv_timer_.reset();
          return socket::status_t();
       }
 
    }; // class socket_t
 
-   namespace utility {
+   namespace socket::internal {
 
-#if defined(XPLAT_OS_WIN)
+   #if defined(_MSC_VER)
+
       /**********************************************************************\
       *
       *  winsock_init_t
@@ -1214,7 +1095,7 @@ namespace rmlib {
       }; // class socket_init_t
 
       inline const static winsock_init_t socket_startup_;
-#endif
+   #endif
 
       class openssl_t
       {
@@ -1263,7 +1144,7 @@ namespace rmlib {
 
       inline const static openssl_t openssl_startup_;
 
-   } // namespace utility
+   } // namespace socket::internal
 
 
 } // namespace netptune
