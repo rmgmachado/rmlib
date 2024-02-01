@@ -31,9 +31,6 @@
 #include <string>
 #include <array>
 #include <vector>
-#include <memory>
-#include <format>
-#include <bit>
 
 #include <openssl/ssl.h>
 #include <openssl/err.h>
@@ -368,8 +365,7 @@ namespace rmlib {
 
          std::string url() const noexcept
          {
-            return std::format("{}:{}", dot_notation(), port());
-            return std::format("{}:{}", dot_notation(), port());
+            return dot_notation() + ":" + std::to_string(port());
          }
       }; // class address_t
 

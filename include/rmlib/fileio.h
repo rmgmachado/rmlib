@@ -29,6 +29,7 @@
 #include <cstdio>
 #include <cerrno>
 #include <cstring>
+#include <string>
 
 #include "rmlib/rmxplat.h"
 #include "rmlib/rmstatus.h"
@@ -43,7 +44,6 @@ namespace rmlib {
       enum class seek_mode_t { begin, current, end };
       enum class lock_type_t { shared, exclusive, unlock };
 
-      using status_t = rmlib::status_t<>;
       using offset_t = off64_t;
                
       namespace xplat {
