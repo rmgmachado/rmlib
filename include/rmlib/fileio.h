@@ -31,173 +31,350 @@
 #include <cstring>
 #include <string>
 
-#include "rmlib/rmxplat.h"
-#include "rmlib/rmstatus.h"
+#include "rmlib/xplat.h"
+#include "rmlib/status.h"
+#include "rmlib/utility.h"
+
+#if defined(XPLAT_OS_WIN)
+   #include <windows.h>
+#elif defined(XPLAT_OS_LINUX)
+   #define _LARGEFILE64_SOURCE
+   #include <sys/types.h>
+   #include <fcntl.h>
+#else
+   #include <sys/types.h>
+   #include <fcntl.h>
+#endif
 
 namespace rmlib {
 
-   namespace file {
-      
-      enum class open_mode_t : unsigned { open = 0, create, overwrite };      
-      enum class open_type_t : unsigned { read = 0, write, read_write, append };
-      enum class open_flag_t { text, binary };
-      enum class seek_mode_t { begin, current, end };
-      enum class lock_type_t { shared, exclusive, unlock };
+   using offset_t = uint64_t;
+   constexpr HANDLE NULL_HANDLE = nullptr;
+   enum class open_mode_t { open_existing = 0, create_new, create_always };      
+   enum class open_type_t { read = 0, write, read_write, append };
+   enum class seek_mode_t { begin, current, end };
+   enum class lock_type_t { shared, exclusive, unlock };             
 
-      using offset_t = off64_t;
-               
-      namespace xplat {
+   class file_t
+   {
+      HANDLE fd_{ INVALID_HANDLE_VALUE };
+      open_mode_t mode_{ open_mode_t::open_existing };
+      open_type_t type_{ open_type_t::read_write };
+      std::string path_;
+            
+   public:
+      using handle_t = HANDLE;
+
+      file_t() = default;
+      file_t(const file_t&) = delete;
+      file_t(file_t&&) noexcept = default;
+      file_t& operator=(const file_t&) = delete;
+      file_t& operator=(file_t&&) noexcept = default;
          
-         
-         status_t lock(FILE* fd, lock_type_t type, offset_t 
-         
-      } // namespace xplat
-      
-      class file_t
+      ~file_t() noexcept
       {
-         FILE* fd_{};
-         std::string path_;
-            
-      public:
-         file_t() = default;
-         file_t(const file_t&) = delete;
-         file_t(file_t&&) noexcept = default;
-         file_t& operator=(const file_t&) = delete;
-         file_t& operator=(file_t&&) noexcept = default;
+         close();
+      }
          
-         ~file_t() noexcept
-         {
-            close();
-         }
+      bool is_open() const noexcept
+      {
+         return fd_ != INVALID_HANDLE_VALUE;
+      }
+      
+      std::string path() const noexcept
+      {
+         return path_;
+      }
+      
+      handle_t handle() noexcept
+      {
+         return fd_;
+      }
          
-         bool is_open() const noexcept
+      handle_t handle() const noexcept
+      {
+         return fd_;
+      }
+
+      // opening a file with mode == create_new and type == read will not 
+      // allow write operations and read calls will always return EOF. Not 
+      // very useful. It is recommended to use type == read_write instead.
+      status_t open(const char* path, open_mode_t mode = open_mode_t::open_existing, open_type_t type = open_type_t::read_write) noexcept
+      {
+         status_t status;
+         close();
+         if (fd_ = CreateFileA(path, xlate_access(type), (FILE_SHARE_READ | FILE_SHARE_WRITE), nullptr, xlate_create(mode), FILE_ATTRIBUTE_NORMAL, NULL_HANDLE); fd_ == INVALID_HANDLE_VALUE)
          {
-            return fd_ != nullptr;
-         }
-      
-         std::string path() const noexcept
-         {
-            return path_;
-         }
-      
-         FILE* handle() noexcept
-         {
-            return fd_;
-         }
-         
-         const FILE* handle() const noexcept
-         {
-            return fd_;
-         }
-      
-         status_t open(const std::string& path, open_mode_t mode = open_mode_t::open, open_type_t type = open_type_t::read_write, open_flag_t flag = open_flag_t::text) noexcept
-         {
-            close();
-            if (fd_ = fopen(path.c_str(), xlate(mode, type, flag).c_str()); !fd_)
+            auto last_error = GetLastError();
+            if (last_error == ERROR_ALREADY_EXISTS && mode == open_mode_t::create_always)
             {
-               return status_t(-1);
+               return status;
             }
-            path_ = path;
-            return status_t{};
+            fd_ = INVALID_HANDLE_VALUE;
+            return status.reset(last_error, GetLastErrorMessage(last_error));
          }
+         path_ = path;
+         mode_ = mode;
+         type_ = type;
+         return status;
+      }
+
+      status_t open(const std::string& path, open_mode_t mode = open_mode_t::open_existing, open_type_t type = open_type_t::read_write) noexcept
+      {
+         return open(path.c_str(), mode, type);
+      }
       
-         status_t close() noexcept
+      status_t close() noexcept
+      {
+         status_t status;
+         if (is_open())
          {
-            status_t status;
-            if (is_open())
+            flush();
+            if (!CloseHandle(fd_))
             {
-               status = fclose(fd_);
-               fd_ = nullptr;
+               return status.reset(GetLastError(), GetLastErrorMessage());
             }
-            return status;
+            fd_ = INVALID_HANDLE_VALUE;
          }
+         return status;
+      }
       
-         status_t write(const char* buffer, size_t size) noexcept
+      status_t write(const void* buffer, size_t size, size_t& bytes_written) noexcept
+      {
+         DWORD count{};
+         bytes_written = 0;
+         size_t saved_pos{ 0 };
+         status_t status = save_pos(saved_pos);
+         if (status.nok()) return status;
+         if (!WriteFile(fd_, buffer, static_cast<DWORD>(size), &count, nullptr))
          {
-            if (!is_open() || !buffer) return status_t{ EINVAL };
-            if (!size) return status_t{};
-            clearerr(fd_);
-            fwrite(buffer, sizeof(char), size, fd_);
-            return status_t{ ferror(fd_) };
+            restore_pos(saved_pos);
+            return status.reset(GetLastError(), GetLastErrorMessage());
          }
+         bytes_written = count;
+         return restore_pos(saved_pos);
+      }
       
-         status_t write(const char* text) noexcept
+      status_t write(const char* text, size_t& bytes_written) noexcept
+      {
+         if (text)
          {
-            if (!text) return status_t{ EINVAL };
-            return write(text, strlen(text));
+            return write(text, strlen(text), bytes_written);
          }
+         return status_t{};
+      }
       
-         template <DataSizeContainer T>
-         status_t write(const T& buffer) noexcept
+      template <DataSizeContainer T>
+      status_t write(const T& buffer, size_t& bytes_written) noexcept
+      {
+         return write(buffer.data(), buffer.size(), bytes_written);
+      }
+
+      // EOF is detected by status.ok() and bytes_read == 0
+      status_t read(void* buffer, size_t size, size_t& bytes_read) noexcept
+      {
+         status_t status;
+         DWORD count{};
+         bytes_read = 0;
+         if (!ReadFile(fd_, buffer, static_cast<DWORD>(size), &count, nullptr))
          {
-            return write(buffer.data(), buffer.size());
+            return status.reset(GetLastError(), GetLastErrorMessage());
          }
-            
-         size_t size() const noexcept
+         bytes_read = count;
+         return status;
+      }
+
+      // EOF is detected by status.ok() and bytes_read == 0
+      template <DataSizeResizeContainer T>
+      status_t read(T& buffer, size_t size, size_t& bytes_read) noexcept
+      {
+         status_t status;
+         buffer.resize(size);
+         bytes_read = 0;
+         status = read(buffer.data(), buffer.size(), bytes_read);
+         buffer.resize(bytes_read);
+         return status;
+      }
+
+      size_t size() const noexcept
+      {
+         LARGE_INTEGER lint{};
+         if (GetFileSizeEx(fd_, &lint))
          {
-            if (!is_open()) return 0;
-            clearerr(fd_);
-            long pos = ftell(fd_);
-            if (pos < 0l) return 0;
-            return static_cast<size_t>(pos);
+            return static_cast<size_t>(lint.QuadPart);
          }
+         return 0;
+      }
       
-         status_t flush() noexcept
+      status_t flush() noexcept
+      {
+         status_t status;
+         if (FlushFileBuffers(fd_) == 0)
          {
-            if (!is_open()) return status_t{ EINVAL };
-            clearerr(fd_);
-            if (fflush(fd_) != 0) return status_t{ ferror(fd_) };
-            return status_t{};
+            return status.reset(GetLastError(), GetLastErrorMessage());
          }
+         return status;
+      }
       
-         status_t seek(offset_t offset, seek_mode_t mode = seek_mode_t::begin) noexcept
+      status_t seek(offset_t offset, seek_mode_t mode = seek_mode_t::begin) noexcept
+      {
+         status_t status;
+         LARGE_INTEGER lint{ .QuadPart = static_cast<LONGLONG>(offset) };
+         if (!SetFilePointerEx(fd_, lint, nullptr, xlate_seek(mode)))
          {
-            using enum seek_mode_t;
-            int origin = (mode == begin ? SEEK_SET : (mode == end ? SEEK_END : SEEK_CUR));
-            if (int ret = _fseeki64(fd_, offset, origin); ret != 0)
+            return status.reset(GetLastError(), GetLastErrorMessage());
+         }
+         return status;
+      }
+         
+      status_t rewind() noexcept
+      {
+         return seek(0, seek_mode_t::begin);
+      }  
+
+      offset_t tell() const noexcept
+      {
+         LARGE_INTEGER current{ .QuadPart = 0 };
+         LARGE_INTEGER offset{ .QuadPart = 0 };
+         if (SetFilePointerEx(fd_, current, &offset, FILE_CURRENT))
+         {
+            return offset.QuadPart;
+         }
+         return 0;
+      }
+         
+      status_t lock(lock_type_t type, offset_t offset, size_t bytes, bool try_lock = false) noexcept
+      {
+         status_t status;
+         OVERLAPPED overlap{};
+         overlap.Offset = low32(offset);
+         overlap.OffsetHigh = high32(offset);
+         overlap.hEvent = nullptr;
+         DWORD flag{};
+         if (type == lock_type_t::exclusive)
+         {
+            flag |= LOCKFILE_EXCLUSIVE_LOCK;
+         }
+         if (try_lock)
+         {
+            flag |= LOCKFILE_FAIL_IMMEDIATELY;
+         }
+         if (type == lock_type_t::unlock)
+         {
+            if (!UnlockFileEx(fd_, 0, low32(bytes), high32(bytes), &overlap))
             {
-               return status_t(-1);
+               return status.reset(GetLastError(), GetLastErrorMessage());
             }
-            return status_t{};
          }
-         
-         offset_t tell() const noexcept
+         else
          {
-            return _ftelli64(fd_);
-         }
-         
-         status_t lock(offset_t offset, size_t bytes, lock_mode_t mode) noexcept
-         {
-            
-         }
-         
-         status_t try_lock(offset_t offset, size_t bytes, lock_mode_t mode) noexcept
-         {
-         }
-         
-         status_t unlock(offset_t offset, size_t bytes) noexcept
-         {
-         }
-         
-      private:
-         std::string xlate(mode_t mode, type_t type, flag_t flag) const noexcept
-         {
-            const char* matrix[][] = 
+            if (!LockFileEx(fd_, flag, 0, low32(bytes), high32(bytes), &overlap))
             {
-               /*                read,    write,   read_write, append */
-               /* open */      { "r",     "wx",    "r+",       "ax" },
-               /* create */    { "w+x",   "w+x",    "w+x",     "a+x" },
-               /* overwrite */ { "w+",    "w+",    "w+",       "a+" }
-            };
-            std::string param{ matrix[static_cast<unsigned>(mode)][static_cast<unsigned>(type)] }; 
-            if (flag == flag_t::binary)
-            {
-               param += "b";
+               return status.reset(GetLastError(), GetLastErrorMessage());
             }
-            return param;
-         }      
-      }; // class file_t
-   
+         }
+         return status;
+
+      }
+         
+      bool try_lock(lock_type_t type, offset_t offset, size_t bytes) noexcept
+      {
+         return lock(type, offset, bytes, true).ok();
+      }
+         
+      status_t unlock(offset_t offset, size_t bytes) noexcept
+      {
+         return lock(lock_type_t::unlock, offset, bytes, false);
+      }
+
+   private:
+      bool is_append() const noexcept
+      {
+         return (type_ == open_type_t::append);
+      }
+
+      status_t seek_end() noexcept
+      {
+         return seek(0, seek_mode_t::end);
+      }
+
+      status_t save_pos(size_t& saved_pos) noexcept
+      {
+         if (is_append())
+         {
+            saved_pos = tell();
+            return seek(0, seek_mode_t::end);
+         }
+         return status_t{};
+      }
+
+      status_t restore_pos(size_t saved_pos) noexcept
+      {
+         if (is_append())
+         {
+            return seek(saved_pos, seek_mode_t::begin);
+         }
+         return status_t{};
+      }
+
+      DWORD xlate_access(open_type_t type) const noexcept
+      {
+         using enum open_type_t;
+         switch (type)
+         {
+            case read: return GENERIC_READ;
+            case write: return GENERIC_WRITE;
+            case read_write: return (GENERIC_READ | GENERIC_WRITE);
+            case append: return (GENERIC_READ | GENERIC_WRITE);
+         }
+         return 0;
+      }
+
+      DWORD xlate_create(open_mode_t mode) const noexcept
+      {
+         using enum open_mode_t;
+         switch (mode)
+         {
+            case open_existing: return OPEN_EXISTING;
+            case create_new: return CREATE_NEW;
+            case create_always:return CREATE_ALWAYS;
+         }
+         return 0;
+      }
+
+      DWORD xlate_seek(seek_mode_t mode) noexcept
+      {
+         using enum seek_mode_t;
+         switch (mode)
+         {
+            case begin: return FILE_BEGIN;
+            case current: return FILE_CURRENT;
+            case end: return FILE_END;
+         }
+         return FILE_BEGIN;
+      }
+   }; // class file_t
+
+   namespace fileio {
+
+#if defined(XPLAT_OS_WIN)
+      inline status_t remove(const std::string& path) noexcept
+      {
+         status_t status;
+         if (!DeleteFileA(path.c_str()))
+         {
+            return status.reset(GetLastError(), GetLastErrorMessage());
+         }
+         return status;
+      }
+
+      inline bool exists(const std::string& path) noexcept
+      {
+         DWORD fileAttributes = GetFileAttributesA(path.c_str());
+         return (fileAttributes != INVALID_FILE_ATTRIBUTES && !(fileAttributes & FILE_ATTRIBUTE_DIRECTORY));
+      }
+#endif
+
    } // namespace file
 
 } // namespace rmlib

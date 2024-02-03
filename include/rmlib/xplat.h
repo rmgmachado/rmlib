@@ -141,8 +141,3 @@
    #endif
 #endif
 
-#if defined(XPLAT_OS_LINUX)
-    #include <cstring>
-    #include <cerrno>
-    #define strerror_s(text, size, err) strerror_r(err, text, size)
-#endif

@@ -27,6 +27,8 @@
 #pragma once
 
 #include <concepts>
+#include <thread>
+#include <atomic>
 
 namespace rmlib {
 
@@ -52,4 +54,68 @@ namespace rmlib {
       { a.clear() } -> std::same_as<void>;
    } && sizeof(typename T::value_type) == 1;
    
+   inline uint32_t low32(uint64_t value) noexcept
+   {
+      return static_cast<uint32_t>(value & 0xffffffffull);
+   }
+
+   inline uint32_t high32(uint64_t value) noexcept
+   {
+      return static_cast<uint32_t>(value  >> 32);
+   }
+
+   inline uint64_t make64(uint32_t high, uint32_t low) noexcept
+   {
+      uint64_t hv{ high };
+      return static_cast<uint64_t>((hv << 32) | low);
+   }
+
+   class spin_lock_t 
+   {
+      std::atomic_flag flag_ = ATOMIC_FLAG_INIT;
+   
+   public:
+      spin_lock_t() = default;
+      spin_lock_t(const spin_lock_t&) = delete;
+      spin_lock_t(spin_lock_t&&) noexcept = default;
+      spin_lock_t& operator=(const spin_lock_t&) = delete;
+      spin_lock_t& operator=(spin_lock_t&&) noexcept = default;
+
+      void lock() noexcept
+      {
+         while (flag_.test_and_set(std::memory_order_acquire)) 
+         {
+            std::this_thread::yield(); // Spin until the lock is acquired
+         }
+      }
+
+      void unlock() noexcept
+      {
+         flag_.clear(std::memory_order_release);
+      }
+   };
+
+   class spin_guard_t
+   {
+      spin_lock_t& lock_;
+
+   public:
+      spin_guard_t() = delete;
+      spin_guard_t(const spin_guard_t&) = delete;
+      spin_guard_t(spin_guard_t&&) noexcept = delete;
+      spin_guard_t& operator=(const spin_guard_t&) = delete;
+      spin_guard_t& operator=(spin_guard_t&&) noexcept = delete;
+
+      spin_guard_t(spin_lock_t& spl) noexcept
+         : lock_{ spl }
+      {
+         lock_.lock();
+      }
+
+      ~spin_guard_t() noexcept
+      {
+         lock_.unlock();
+      }
+   };
+
 } // namespace rmlib

@@ -406,6 +406,17 @@ namespace rmlib {
          return socket::status_t{ T::last_error() };
       }
 
+      inline std::string local_host_name() noexcept
+      {
+         std::string host;
+         if (local_host_name(host).ok())
+         {
+            return host;
+         }
+         host.clear();
+         return host;
+      }
+
       using address_list_t = std::vector<address_t>;
       enum class resolution_type_t : int { normal = 0, passive = AI_PASSIVE };
 
@@ -1090,7 +1101,7 @@ namespace rmlib {
          return socket::status_t{};
       }
 
-      socket::status_t tcp_accept(socket_t& client, socket_mode_t mode) noexcept
+      socket::status_t tcp_accept(socket_t& client, socket_mode_t mode, ip::address_t& address) noexcept
       {
          socket::status_t status;
          if (state_ == socket_state_t::accepting) return status;
@@ -1109,6 +1120,7 @@ namespace rmlib {
          socket.mode_ = mode;
          socket.state_ = socket_state_t::connected;
          socket.generate_uid();
+         address = ip::address_t(name, namelen);
          if (ssl_)
          {
             socket.ctx_ = ctx_;
@@ -1119,6 +1131,12 @@ namespace rmlib {
          client.send_timer_.reset();
          client.recv_timer_.reset();
          return status;
+      }
+
+      socket::status_t tcp_accept(socket_t& client, socket_mode_t mode) noexcept
+      {
+         ip::address_t address;
+         return tcp_accept(client, mode, address);
       }
 
       socket::status_t tcp_send(const char* buffer, size_t len, size_t& bytes_sent) noexcept
