@@ -28,6 +28,7 @@
 
 #include <cstdint>
 #include <cstddef>
+#include <cstring>
 #include <string>
 #include <array>
 #include <vector>
@@ -78,8 +79,6 @@
    #include <errno.h>
    #include <string.h>
 
-   using SOCKET = int;
-   using HANDLE = int;
    using WSAPOLLFD = struct pollfd;
    using LPWSAPOLLFD = struct pollfd*;
    using ADDRINFOA = struct addrinfo;
@@ -92,8 +91,9 @@
    inline int WSAPoll(LPWSAPOLLFD fdArray, nfds_t nfds, int timeout) { return ::poll(fdArray, nfds, timeout); }
    inline void ZeroMemory(void* ptr, size_t size) { memset(ptr, '\0', size); }
    inline int epoll_close(HANDLE ephnd) { return close(ephnd); }
+   inline void strerror_s(char* buffer, size_t size, int error) { strerror_r(error, buffer, size); }
 
-   constexpr int INVALID_SOCKET = -1;
+constexpr int INVALID_SOCKET = -1;
    constexpr int SOCKET_ERROR = -1;
    constexpr HANDLE INVALID_EPOLL_HANDLE = -1;
 
@@ -109,8 +109,8 @@
    #define SD_SEND      SHUT_WR
    #define SD_RECEIVE   SHUT_RD
    #define SD_BOTH      SHUT_RDWR
-
 #endif
+
 
 namespace rmlib {
 
@@ -228,25 +228,23 @@ namespace rmlib {
             ERR_clear_error();
          }
 
+         [[nodiscard]]
          std::string reason() const noexcept
          {
             using enum status_code_t;
             if (code_ == fatal)
             {
-               std::array<char, SOCKET_MAX_ERROR_STRING_SIZE> buffer;
+               std::array<char, SOCKET_MAX_ERROR_STRING_SIZE> buffer{};
                ERR_error_string_n(ctx_, buffer.data(), buffer.size());
-               return std::string(buffer.data());
+               return std::string{buffer.data() };
             }
             else if (code_ != none)
             {
-               std::array<char, SOCKET_MAX_ERROR_STRING_SIZE> text;
-               if (strerror_s(text.data(), text.size(), error_) == 0)
-               {
-                  return std::string(text.data());
-               }
-               return std::string("strerror_s() call failed: no error text available");
+               std::array<char, SOCKET_MAX_ERROR_STRING_SIZE> text{};
+               strerror_s(text.data(), text.size(), error_);
+               return std::string{text.data() };
             }
-            return std::string("No errors detected");
+            return "No errors detected";
          }
       }; // class status_t
 

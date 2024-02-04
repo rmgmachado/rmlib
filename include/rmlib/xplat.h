@@ -141,3 +141,8 @@
    #endif
 #endif
 
+#if !defined(XPLAT_OS_WIN)
+   using SOCKET = int;
+   using HANDLE = int;
+#endif
+
