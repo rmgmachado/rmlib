@@ -43,8 +43,8 @@ namespace fileio_ut {
 
    void cleanup() noexcept
    {
-      fileio::remove("test1.txt");
-      fileio::remove("test2.txt");
+      fileio::file_delete("test1.txt");
+      fileio::file_delete("test2.txt");
    }
 
    status_t create_file(const char* path, const char* text, size_t& bytes_written) noexcept
@@ -101,7 +101,7 @@ TEST_CASE("rmlib::fileio unit tests", "[fileio]")
       REQUIRE(bytes_read == bytes_written);
       REQUIRE(text == fileio_ut::text1);
       REQUIRE(file.close().ok());
-      REQUIRE(fileio::remove(fileio_ut::path1).ok());
+      REQUIRE(fileio::file_delete(fileio_ut::path1).ok());
    }
    SECTION("Test file_t.open(open_existing, read) for read and try to write to it")
    {
@@ -111,7 +111,7 @@ TEST_CASE("rmlib::fileio unit tests", "[fileio]")
       REQUIRE(file.open(fileio_ut::path1, open_mode_t::open_existing, open_type_t::read).ok());
       REQUIRE(file.write(fileio_ut::text2, bytes_written).nok());
       REQUIRE(file.close().ok());
-      REQUIRE(fileio::remove(fileio_ut::path1).ok());
+      REQUIRE(fileio::file_delete(fileio_ut::path1).ok());
    }
    SECTION("Test file_t.open(open, write) and write and read")
    {
@@ -124,7 +124,7 @@ TEST_CASE("rmlib::fileio unit tests", "[fileio]")
       std::string text;
       REQUIRE(file.read(text, strlen(fileio_ut::text2), bytes_read).nok());
       REQUIRE(file.close().ok());
-      REQUIRE(fileio::remove(fileio_ut::path1).ok());
+      REQUIRE(fileio::file_delete(fileio_ut::path1).ok());
    }
    SECTION("Test file_t.open(open_existing, read_write) and write and read")
    {
@@ -145,7 +145,7 @@ TEST_CASE("rmlib::fileio unit tests", "[fileio]")
       REQUIRE(bytes_read == strlen(fileio_ut::text2));
       REQUIRE(text == fileio_ut::text2);
       REQUIRE(file.close().ok());
-      REQUIRE(fileio::remove(fileio_ut::path1).ok());
+      REQUIRE(fileio::file_delete(fileio_ut::path1).ok());
    }
    SECTION("Test file_t.open(open_existing, append) and write and read")
    {
@@ -164,7 +164,7 @@ TEST_CASE("rmlib::fileio unit tests", "[fileio]")
       REQUIRE(bytes_read == strlen(fileio_ut::text2));
       REQUIRE(text == fileio_ut::text2);
       REQUIRE(file.close().ok());
-      REQUIRE(fileio::remove(fileio_ut::path1).ok());
+      REQUIRE(fileio::file_delete(fileio_ut::path1).ok());
    }
    SECTION("Test fileio::open(create_new, read) and read and write")
    {
@@ -177,7 +177,7 @@ TEST_CASE("rmlib::fileio unit tests", "[fileio]")
       REQUIRE(file.read(text, strlen(fileio_ut::text1), bytes_read).ok());
       REQUIRE(bytes_read == 0);
       REQUIRE(file.close().ok());
-      REQUIRE(fileio::remove(fileio_ut::path1).ok());
+      REQUIRE(fileio::file_delete(fileio_ut::path1).ok());
    }
    SECTION("Test fileio::open(create_new, write) and read and write")
    {
@@ -189,7 +189,7 @@ TEST_CASE("rmlib::fileio unit tests", "[fileio]")
       std::string text;
       REQUIRE(file.read(text, strlen(fileio_ut::text1), bytes_read).nok());
       REQUIRE(file.close().ok());
-      REQUIRE(fileio::remove(fileio_ut::path1).ok());
+      REQUIRE(fileio::file_delete(fileio_ut::path1).ok());
    }
    SECTION("Test fileio::open(create_new, read_write) and read and write")
    {
@@ -210,7 +210,7 @@ TEST_CASE("rmlib::fileio unit tests", "[fileio]")
       REQUIRE(bytes_read == strlen(fileio_ut::text1));
       REQUIRE(text == fileio_ut::text1);
       REQUIRE(file.close().ok());
-      REQUIRE(fileio::remove(fileio_ut::path1).ok());
+      REQUIRE(fileio::file_delete(fileio_ut::path1).ok());
    }
    SECTION("Test fileio::open(create_new, append) and read and write")
    {
@@ -224,8 +224,8 @@ TEST_CASE("rmlib::fileio unit tests", "[fileio]")
       REQUIRE(bytes_read == strlen(fileio_ut::text1));
       REQUIRE(text == fileio_ut::text1);
       REQUIRE(file.close().ok());
-      REQUIRE(fileio::exists(fileio_ut::path1));
-      REQUIRE(fileio::remove(fileio_ut::path1).ok());
+      REQUIRE(fileio::file_exists(fileio_ut::path1));
+      REQUIRE(fileio::file_delete(fileio_ut::path1).ok());
    }
    SECTION("Test fileio::open(create_always, read) and read and write")
    {
@@ -240,7 +240,7 @@ TEST_CASE("rmlib::fileio unit tests", "[fileio]")
       REQUIRE(bytes_read == 0);
       REQUIRE(text.empty());
       REQUIRE(file.close().ok());
-      REQUIRE(fileio::remove(fileio_ut::path1).ok());
+      REQUIRE(fileio::file_delete(fileio_ut::path1).ok());
    }
    SECTION("Test fileio::open(create_always, write) and read and write")
    {
@@ -254,7 +254,7 @@ TEST_CASE("rmlib::fileio unit tests", "[fileio]")
       REQUIRE(file.write(fileio_ut::text2, bytes_written).ok());
       REQUIRE(file.read(text, strlen(fileio_ut::text2), bytes_read).nok());
       REQUIRE(file.close().ok());
-      REQUIRE(fileio::remove(fileio_ut::path1).ok());
+      REQUIRE(fileio::file_delete(fileio_ut::path1).ok());
    }
    SECTION("Test fileio::open(create_always, read_write) and read and write")
    {
@@ -273,7 +273,7 @@ TEST_CASE("rmlib::fileio unit tests", "[fileio]")
       REQUIRE(bytes_read == strlen(fileio_ut::text1));
       REQUIRE(text == fileio_ut::text1);
       REQUIRE(file.close().ok());
-      REQUIRE(fileio::remove(fileio_ut::path1).ok());
+      REQUIRE(fileio::file_delete(fileio_ut::path1).ok());
    }
    SECTION("Test fileio::open(create_always, append) and read and write")
    {
@@ -288,7 +288,7 @@ TEST_CASE("rmlib::fileio unit tests", "[fileio]")
       REQUIRE(bytes_read == strlen(fileio_ut::text1));
       REQUIRE(text == fileio_ut::text1);
       REQUIRE(file.close().ok());
-      REQUIRE(fileio::remove(fileio_ut::path1).ok());
+      REQUIRE(fileio::file_delete(fileio_ut::path1).ok());
    }
    SECTION("Test fileio::open(create_always, read_write) when file exists and has data")
    {
@@ -302,7 +302,7 @@ TEST_CASE("rmlib::fileio unit tests", "[fileio]")
       REQUIRE(bytes_read == 0);
       REQUIRE(text.empty());
       REQUIRE(file.close().ok());
-      REQUIRE(fileio::remove(fileio_ut::path1).ok());
+      REQUIRE(fileio::file_delete(fileio_ut::path1).ok());
    }
    SECTION("Test fileio::seek() and fileio::tell()")
    {
@@ -322,7 +322,7 @@ TEST_CASE("rmlib::fileio unit tests", "[fileio]")
       REQUIRE(file.seek(0, seek_mode_t::current).ok());
       REQUIRE(file.tell() == offset + str.size());
       REQUIRE(file.close().ok());
-      REQUIRE(fileio::remove(fileio_ut::path1).ok());
+      REQUIRE(fileio::file_delete(fileio_ut::path1).ok());
 
    }
 }
@@ -427,6 +427,6 @@ TEST_CASE("Test rmlib::file locking", "[fileio]")
    REQUIRE(file.try_lock(lock_type, 0, 1));
    REQUIRE(file.unlock(0, 1).ok());
    REQUIRE(file.close().ok());
-   REQUIRE(fileio::remove(fileio_ut::path1).ok());
+   REQUIRE(fileio::file_delete(fileio_ut::path1).ok());
 }
 #endif
