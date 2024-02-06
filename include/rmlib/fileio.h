@@ -42,6 +42,7 @@ constexpr size_t MAX_ERROR_MESSAGE_SIZE = 256;
 #include <windows.h>
 
    using offset_t = uint64_t;
+   constexpr DWORD GENERIC_READ_WRITE = (GENERIC_READ | GENERIC_WRITE);
 
 #else
 
@@ -56,6 +57,56 @@ constexpr size_t MAX_ERROR_MESSAGE_SIZE = 256;
    using offset_t = off_t;
    using errno_t = int;
 
+   constexpr DWORD GENERIC_READ_WRITE = (GENERIC_READ | GENERIC_WRITE);
+   constexpr errno_t ERROR_ALREADY_EXISTS = EEXIST;
+
+   using HANDLE = int;
+   constexpr HANDLE INVALID_HANDLE_VALUE = -1;
+
+   constexpr int GENERIC_READ = O_RDONLY;
+   constexpr int GENERIC_WRITE = O_WRONLY;
+   constexpr int GENERIC_READ_WRITE = O_RDWR;
+   constexpr int OPEN_EXISTING = 0;
+   constexpr int CREATE_NEW = O_CREAT | O_EXCL;
+   constexpr int CREATE_ALWAYS = O_CREAT | O_TRUNC;
+
+   constexpr int FILE_SHARE_READ = S_IRUSR | S_IRGRP | S_IROTH;
+   constexpr int FILE_SHARE_WRITE = S_IWUSR | S_IWGRP;
+
+   constexpr int FILE_BEGIN = SEEK_SET;
+   constexpr int FILE_CURRENT = SEEK_CUR;
+   constexpr int FILE_END = SEEK_END;
+
+   constexpr int LOCKFILE_EXCLUSIVE_LOCK = 2;
+   constexpr int LOCKFILE_FAIL_IMMEDIATELY = 1;
+
+   const int 
+
+   struct LARGE_INTEGER
+   {
+      unsigned long long QuadPart;
+   };
+   using PLARGE_INTEGER = LARGE_INTEGER*;
+
+   struct OVERLAPPED
+   {
+      unsigned long Offset;
+      unsigned long OffsetHigh;
+      void* hEvent;
+   };
+
+   using LPOVERLAPPED 
+
+   inline HANDLE CreateFileA(const char* path, DWORD access, DWORD share, void*, DWORD create, DWORD flags, HANDLE) noexcept;
+   inline bool CloseHandle(HANDLE) noexcept;
+   inline bool WriteFile(HANDLE, const void* buffer, DWORD size, DWORD* count, void*) noexcept;
+   inline bool ReadFile(HANDLE, void* buffer, DWORD size, DWORD* count, void*) noexcept;
+   inline bool GetFileSizeEx(HANDLE, PLARGE_INTEGER size) noexcept;
+   inline bool FlushFileBuffers(HANDLE) noexcept;
+   inline bool SetFilePointerEx(HANDLE, LARGE_INTEGER to_offset, PLARGE_INTEGER new_offset, DWORD method) noexcept;
+   inline bool LockFileEx(HANDLE, DWORD flags, DWORD reserved, DWORD bytes_low, DWORD bytes_high, LPOVERLAPPED overlap) noexcept;
+   inline bool UnlockFileEx(HANDLE, DWORD reserved, DWORD bytes_low, DWORD bytes_high, LPOVERLAPPED overlap) noexcept;
+
 #endif
 
    namespace rmlib {
@@ -64,9 +115,6 @@ constexpr size_t MAX_ERROR_MESSAGE_SIZE = 256;
       enum class open_type_t { read = 0, write, read_write, append };
       enum class seek_mode_t { begin, current, end };
       enum class lock_type_t { shared, exclusive, unlock };
-
-      inline std::string GetErrorMessage(errno_t err) noexcept;
-      inline std::string GetLastErrorMessage() noexcept;
 
       namespace fileio {
 
@@ -347,20 +395,6 @@ constexpr size_t MAX_ERROR_MESSAGE_SIZE = 256;
 
       }; // class file_t
 
-      inline std::string GetErrorMessage(errno_t err) noexcept
-      {
-         LPVOID lpMsgBuf;
-         FormatMessageA(FORMAT_MESSAGE_ALLOCATE_BUFFER | FORMAT_MESSAGE_FROM_SYSTEM | FORMAT_MESSAGE_IGNORE_INSERTS, nullptr, err, MAKELANGID(LANG_NEUTRAL, SUBLANG_DEFAULT), (LPSTR)&lpMsgBuf, 0, nullptr);
-         std::string msg(static_cast<char*>(lpMsgBuf));
-         LocalFree(lpMsgBuf);
-         return msg;
-      }
-
-      inline std::string GetLastErrorMessage() noexcept
-      {
-         return GetErrorMessage(GetLastError());
-      }
-
       namespace fileio {
 
          inline DWORD xlate_open_access(open_type_t type) noexcept
@@ -370,8 +404,8 @@ constexpr size_t MAX_ERROR_MESSAGE_SIZE = 256;
             {
             case read: return GENERIC_READ;
             case write: return GENERIC_WRITE;
-            case read_write: return (GENERIC_READ | GENERIC_WRITE);
-            case append: return (GENERIC_READ | GENERIC_WRITE);
+            case read_write: return GENERIC_READ_WRITE;
+            case append: return GENERIC_READ_WRITE;
             }
             return 0;
          }
@@ -424,23 +458,6 @@ constexpr size_t MAX_ERROR_MESSAGE_SIZE = 256;
 
 #else
 
-      inline int GetLastError() noexcept
-      {
-         return errno;
-      }
-
-      inline std::string GetLastErrorMessage(errno_t err) noexcept
-      {
-         std::array<char, MAX_ERROR_MESSAGE_SIZE> buffer{};
-         strerror_r(err, buffer.data(), buffer.size());
-         return buffer.data();
-      }
-
-      inline std::string GetLastErrorMessage() noexcept
-      {
-         return GetLastErrorMessage(errno);
-      }
-
    namespace fileio {
 
       inline status_t file_delete(const std::string& path) noexcept
@@ -458,6 +475,84 @@ constexpr size_t MAX_ERROR_MESSAGE_SIZE = 256;
          struct stat buffer {};
          return (stat(path.c_str(), &buffer) == 0) && S_ISREG(buffer.st_mode);
       }
+
+      inline HANDLE CreateFileA(const char* path, DWORD access, DWORD share, void*, DWORD create, DWORD, HANDLE) noexcept
+      {
+         return open(path, access | create, share);
+      }
+
+      inline bool CloseHandle(HANDLE) noexcept
+      {
+         return close(fd) == 0;
+      }
+
+      inline bool WriteFile(HANDLE, const void* buffer, DWORD size, DWORD* count, void*) noexcept
+      {
+         *count = write(fd, buffer, size);
+         return (*count != -1);
+      }
+
+      inline bool ReadFile(HANDLE, void* buffer, DWORD size, DWORD* count, void*) noexcept
+      {
+         *count = read(fd, buffer, size);
+         return (*count != -1);
+      }
+
+      inline bool GetFileSizeEx(HANDLE, PLARGE_INTEGER size) noexcept
+      {
+         struct stat buffer {};
+         if (fstat(fd, &buffer) == 0)
+         {
+            size->QuadPart = buffer.st_size;
+            return true;
+         }
+         return false;
+      }
+
+      inline bool FlushFileBuffers(HANDLE) noexcept
+      {
+         return (fsync(fd) == 0);
+      }
+
+      inline bool SetFilePointerEx(HANDLE, LARGE_INTEGER to_offset, PLARGE_INTEGER new_offset, DWORD method) noexcept
+      {
+         off_t offset = lseek(fd, to_offset.QuadPart, method);
+         if (offset != -1)
+         {
+            if (new_offset)
+            {
+               new_offset->QuadPart = offset;
+            }
+            return true;
+         }
+         return false;
+      }
+
+      inline bool LockFileEx(HANDLE, DWORD flags, DWORD reserved, DWORD bytes_low, DWORD bytes_high, LPOVERLAPPED overlap) noexcept
+      {
+         struct flock lock {};
+         lock.l_type = (flags & LOCKFILE_EXCLUSIVE_LOCK) ? F_WRLCK : F_RDLCK;
+         lock.l_whence = SEEK_SET;
+         if (overlap)
+         {
+            lock.l_start = make64(overlap->OffsetHigh, overlap->Offset);
+         }
+         lock.l_len = make64(bytes_high, bytes_low);
+         return (fcntl(fd, F_SETLK, &lock) == 0);
+      }
+
+      inline bool UnlockFileEx(HANDLE, DWORD reserved, DWORD bytes_low, DWORD bytes_high, LPOVERLAPPED overlap) noexcept
+      {
+         struct flock lock {};
+         lock.l_type = F_UNLCK;
+         lock.l_whence = SEEK_SET;
+         if (overlap)
+         {
+            lock.l_start = make64(overlap->OffsetHigh, overlap->Offset);
+         }
+         lock.l_len = make64(bytes_high, bytes_low);
+         return (fcntl(fd, F_SETLK, &lock) == 0);}
+
    } // namespace fileio
 
 #endif

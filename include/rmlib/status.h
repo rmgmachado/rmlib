@@ -35,15 +35,46 @@
 
 #if defined(XPLAT_OS_WIN)
    #include <windows.h>
-   inline std::string GetLastErrorMessage(DWORD err) noexcept
+
+   using uerrno_t = unsigned int;
+   using ierrno_t = errno_t;
+
+   inline std::string GetErrorMessage(uerrno_t err) noexcept
    {
       std::string str;
-      LPSTR errorMessageBuffer{};
-      DWORD len = FormatMessageA(FORMAT_MESSAGE_ALLOCATE_BUFFER | FORMAT_MESSAGE_FROM_SYSTEM, nullptr, err, 0, errorMessageBuffer, 0, nullptr);
+      const DWORD MAX_ERROR_STRING = 1024; 
+      std::array<char, MAX_ERROR_STRING> errorMessageBuffer;
+      DWORD len = FormatMessageA(FORMAT_MESSAGE_FROM_SYSTEM, nullptr, err, 0, errorMessageBuffer.data(), MAX_ERROR_STRING, nullptr);
       if (len > 0)
       {
-         str = errorMessageBuffer;
-         LocalFree(errorMessageBuffer);
+         str = errorMessageBuffer.data();
+      }
+      else
+      {
+         str = "Failed to retrieve error message. Error ";
+         str += std::to_string(err);
+      }
+      return str;
+   }
+
+   inline std::string GetErrorMessage(ierrno_t err) noexcept
+   {
+      const unsigned MAX_ERROR_STRING = 1024;
+      std::array<char, MAX_ERROR_STRING> text;
+      strerror_s(text.data(), text.size(), err);
+      return std::string(text.data());
+
+   }
+
+   inline std::string GetErrorMessage(DWORD err) noexcept
+   {
+      std::string str;
+      const DWORD MAX_ERROR_STRING = 1024;
+      std::array<char, MAX_ERROR_STRING> errorMessageBuffer;
+      DWORD len = FormatMessageA(FORMAT_MESSAGE_FROM_SYSTEM, nullptr, err, 0, errorMessageBuffer.data(), MAX_ERROR_STRING, nullptr);
+      if (len > 0)
+      {
+         str = errorMessageBuffer.data();
       }
       else
       {
@@ -55,9 +86,27 @@
 
    inline std::string GetLastErrorMessage() noexcept
    {
-      return GetLastErrorMessage(GetLastError());
+      return GetErrorMessage(GetLastError());
    }
-   #endif
+#else
+   inline int GetLastError() noexcept
+   {
+      return errno;
+   }
+
+   inline std::string GetErrorMessage(DWORD err) noexcept
+   {
+      std::array<char, status::MAX_ERROR_STRING> text;
+      strerror_r(err, text.data(), text.size());
+      return std::string(text.data());
+   }
+
+   inline std::string GetLastErrorMessage() noexcept
+   {
+      return GetErrorMessage(GetLastError());
+   }
+
+#endif
 
 namespace rmlib {
    
@@ -68,29 +117,15 @@ namespace rmlib {
       constexpr int NOTOK = -1;
    
       typedef int (*STATUS_FUNC)();
-      
-      inline int last_error()
-      {
-         return errno;
-      }
-      
-      #if defined(XPLAT_OS_WIN)
-      inline std::string error_text(int err) noexcept
-      {
-         std::array<char, status::MAX_ERROR_STRING> text;
-         strerror_s(text.data(), text.size(), err);
-         return std::string(text.data());
-      }
-      #else
-      inline std::string error_text(int err) noexcept
-      {
-         return std::string{strerror(err) };
-      }
-      #endif
 
+      inline int get_last_error() noexcept
+      {
+         return GetLastError();
+      }
+      
    } // namespace status
    
-   template <typename T = int, T OK = status::OK, T NOK = status::NOTOK, status::STATUS_FUNC FUNC = status::last_error>
+   template <typename T = int, T OK = status::OK, T NOK = status::NOTOK, status::STATUS_FUNC FUNC = status::get_last_error>
    class status_base_t
    {
       T errno_{};
@@ -163,7 +198,7 @@ namespace rmlib {
          if (this->errno_ != OK)
          {
             if (!reason_.empty()) return reason_;
-            return status::error_text(this->errno_);
+            return GetErrorMessage(this->errno_);
          }
          return "No errors detected";
       }
