@@ -84,7 +84,7 @@ constexpr size_t MAX_ERROR_MESSAGE_SIZE = 256;
 
    struct LARGE_INTEGER
    {
-      unsigned long long QuadPart;
+      long long QuadPart;
    };
    using PLARGE_INTEGER = LARGE_INTEGER*;
 
@@ -295,7 +295,7 @@ namespace rmlib {
       status_t seek(offset_t offset, seek_mode_t mode = seek_mode_t::begin) const noexcept
       {
          status_t status;
-         LARGE_INTEGER lint{ .QuadPart = static_cast<unsigned long long>(offset) };
+         LARGE_INTEGER lint{ .QuadPart = static_cast<long long>(offset) };
          if (fd_ != INVALID_HANDLE_VALUE && !SetFilePointerEx(fd_, lint, nullptr, fileio::xlate_seek_mode(mode)))
          {
             return status.reset(GetLastError(), GetLastErrorMessage());
