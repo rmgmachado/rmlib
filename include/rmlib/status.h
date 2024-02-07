@@ -33,6 +33,11 @@
 
 #include "rmlib/xplat.h"
 
+namespace rmlib::status {
+   
+   constexpr size_t MAX_ERROR_STRING = 256;
+}
+
 #if defined(XPLAT_OS_WIN)
    #include <windows.h>
 
@@ -89,16 +94,18 @@
       return GetErrorMessage(GetLastError());
    }
 #else
-   inline int GetLastError() noexcept
+   #if !defined(errno_t)
+      using errno_t = int;
+   #endif
+
+   inline errno_t GetLastError() noexcept
    {
       return errno;
    }
 
-   inline std::string GetErrorMessage(DWORD err) noexcept
+   inline std::string GetErrorMessage(errno_t err) noexcept
    {
-      std::array<char, status::MAX_ERROR_STRING> text;
-      strerror_r(err, text.data(), text.size());
-      return std::string(text.data());
+      return std::string(strerror(err));
    }
 
    inline std::string GetLastErrorMessage() noexcept
@@ -112,7 +119,6 @@ namespace rmlib {
    
    namespace status {
       
-      constexpr size_t MAX_ERROR_STRING = 256;
       constexpr int OK = 0;
       constexpr int NOTOK = -1;
    
