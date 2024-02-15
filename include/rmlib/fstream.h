@@ -37,7 +37,6 @@
 #if defined(XPLAT_OS_WINDOWS)
    #include <windows.h>
    #include <io.h>
-   using off64_t = long long;
 
    inline bool file_exists(const char* filepath) noexcept
    {
@@ -67,29 +66,29 @@
 
 namespace rmlib {
 
-   enum class open_access_t : unsigned
-   {
-        read = 0           // only read operations allowed
-      , write              // only write operations allowed 
-      , read_write         // read and write operations allowed
-      , append             // write operations are appended to the end of the file
-   };
-
-   enum class open_mode_t : unsigned
-   {
-        open_existing = 0  // file must exist
-      , create_new         // file must not exist
-      , create_always      // file is created if new or truncated if it exsits
-   };
-
-   enum class seek_mode_t : int {begin = SEEK_SET, current = SEEK_CUR, end = SEEK_END };
-
    class fstream_t
    {
       FILE* handle_{};
 
    public:
       using file_handle_t = FILE*;
+
+      enum class access_t : unsigned
+      {
+         read = 0           // only read operations allowed
+         , write              // only write operations allowed 
+         , read_write         // read and write operations allowed
+         , append             // write operations are appended to the end of the file
+      };
+
+      enum class mode_t : unsigned
+      {
+         open_existing = 0  // file must exist
+         , create_new         // file must not exist
+         , create_always      // file is created if new or truncated if it exsits
+      };
+
+      enum class whence_t : int { begin = SEEK_SET, current = SEEK_CUR, end = SEEK_END };
 
       fstream_t() = default;
       fstream_t(const fstream_t&) = delete;
@@ -113,8 +112,9 @@ namespace rmlib {
          return feof(handle_);
       }
 
-      // status_t is set to EINVAL if access more read is used with create_new or create_always
-      status_t open(const char* filename, open_access_t access, open_mode_t mode) noexcept
+      // status_t is set to EINVAL if open_access_t is read and open_mode_t
+      // is create_new or create_always
+      status_t open(const char* filename, mode_t mode = mode_t::open_existing, access_t access = access_t::read_write) noexcept
       {
          const char* mode_str[4][3] =
          {
@@ -124,7 +124,10 @@ namespace rmlib {
             /* read_write  */ {   "r+b",         "wx+b",      "w+n"     },
             /* append      */ {   "a+xb",        "a+xb",      "a+b"     }
          };
-         if (*mode_str[static_cast<unsigned>(access)][static_cast<unsigned>(mode)] == '?') return status_t(EINVAL);
+         if (*mode_str[static_cast<unsigned>(access)][static_cast<unsigned>(mode)] == '?')
+         {
+            return status_t(EINVAL);
+         }
          close();
          status_t status = fopen_s(&handle_, filename, mode_str[static_cast<unsigned>(access)][static_cast<unsigned>(mode)]);
          if (status.nok())
@@ -134,9 +137,9 @@ namespace rmlib {
          return status;
       }
 
-      status_t open(const std::string& filename, open_access_t access, open_mode_t mode) noexcept
+      status_t open(const std::string& filename, mode_t mode = mode_t::open_existing, access_t access = access_t::read_write) noexcept
       {
-         return open(filename.c_str(), access, mode);
+         return open(filename.c_str(), mode, access);
       }
 
       status_t close() noexcept
@@ -202,9 +205,11 @@ namespace rmlib {
       // return file size in bytes
       size_t size() noexcept
       {
+         static spin_lock_t lock;
          off64_t size{};
          if (handle_)
          {
+            spin_guard_t lock_guard(lock);
             off64_t current = _ftelli64(handle_);
             _fseeki64(handle_, 0, SEEK_END);
             size = _ftelli64(handle_);
@@ -219,7 +224,7 @@ namespace rmlib {
          return -1;
       }
 
-      status_t seek(off64_t offset, seek_mode_t mode) noexcept
+      status_t seek(off64_t offset, whence_t mode) noexcept
       {
          if (handle_) return status_t(_fseeki64(handle_, offset, static_cast<int>(mode)));
          return status_t(EBADF);
@@ -227,7 +232,7 @@ namespace rmlib {
 
       status_t rewind() noexcept
       {
-         return seek(0, seek_mode_t::begin);
+         return seek(0, whence_t::begin);
       }
 
       // check if file exists.
@@ -250,7 +255,6 @@ namespace rmlib {
       {
          return remove(filename.c_str());
       }
-
    }; // class fstream_t
       
 } // namespace rmlib::time

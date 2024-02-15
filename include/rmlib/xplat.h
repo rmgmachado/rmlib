@@ -143,7 +143,96 @@
 #endif
 
 #if !defined(XPLAT_OS_WIN)
+   #define _GNU_SOURCE
+   #include <string.h>
+   
+   inline int strerror_s(char* buf, size_t buflen, int errnum) noexcept
+   {
+      if (!buf || buflen == 0) return EINVAL;
+      char* str = strerror_r(errnum, buf, buflen);
+      if (str != buf)
+      {
+         strlcpy(buf, str, buflen);
+      }
+      return 0;
+   }
+
    using SOCKET = int;
    using HANDLE = int;
+#endif
+
+#if defined(XPLAT_OS_WINDOWS)
+   #include <Windows.h>
+   #include <cerrno>
+   #include <string>
+
+   using off64_t = long long;
+
+   inline std::string get_windows_error_message(DWORD dwError) noexcept
+   {
+      LPVOID lpMsgBuf;
+      FormatMessageA(FORMAT_MESSAGE_ALLOCATE_BUFFER | FORMAT_MESSAGE_FROM_SYSTEM | FORMAT_MESSAGE_IGNORE_INSERTS,
+         NULL, dwError, MAKELANGID(LANG_NEUTRAL, SUBLANG_DEFAULT), (LPSTR)&lpMsgBuf, 0, NULL);
+      std::string strMsg((LPSTR)lpMsgBuf);
+      LocalFree(lpMsgBuf);
+      return strMsg;
+   }
+
+   inline std::string get_windows_last_error_message() noexcept
+   {
+      return get_windows_error_message(GetLastError());
+   }
+
+   inline int xlate_windows_error_code(DWORD dwError) noexcept
+   {
+      switch (dwError)
+      {
+         case ERROR_FILE_NOT_FOUND:             return ENOENT;
+         case ERROR_PATH_NOT_FOUND:             return ENOENT;
+         case ERROR_TOO_MANY_OPEN_FILES:        return EMFILE;
+         case ERROR_ACCESS_DENIED:              return ENODATA;
+         case ERROR_INVALID_HANDLE:             return EBADF;
+         case ERROR_NOT_ENOUGH_MEMORY:          return ENOMEM;
+         case ERROR_INVALID_ACCESS:             return ENODATA;
+         case ERROR_INVALID_DATA:               return EINVAL;
+         case ERROR_OUTOFMEMORY:                return ENOMEM;
+         case ERROR_WRITE_PROTECT:              return EACCES;
+         case ERROR_BAD_LENGTH:                 return EINVAL;
+         case ERROR_SEEK:                       return ESPIPE;
+         case ERROR_SHARING_VIOLATION:          return EACCES;
+         case ERROR_LOCK_VIOLATION:             return ENOLCK;
+         case ERROR_SHARING_BUFFER_EXCEEDED:    return ENOBUFS;
+         case ERROR_NOT_SUPPORTED:              return ENOTSUP;
+         case ERROR_DEV_NOT_EXIST:              return ENODATA;
+         case ERROR_BAD_DEV_TYPE:               return ENODEV;
+         case ERROR_FILE_EXISTS:                return EEXIST;
+         case ERROR_BROKEN_PIPE:                return EPIPE;
+         case ERROR_BUFFER_OVERFLOW:            return ENOBUFS;
+         case ERROR_INVALID_TARGET_HANDLE:      return EBADF;
+         case ERROR_CALL_NOT_IMPLEMENTED:       return ENOSYS;
+         case ERROR_SEM_TIMEOUT:                return ETIME;
+         case ERROR_INSUFFICIENT_BUFFER:        return ENOBUFS;
+         case ERROR_INVALID_NAME:               return ENODATA;
+         case ERROR_PROC_NOT_FOUND:             return ENOSYS;
+         case ERROR_NEGATIVE_SEEK:              return EPIPE;
+         case ERROR_SEEK_ON_DEVICE:             return EPIPE;
+         case ERROR_DIR_NOT_EMPTY:              return ENOTEMPTY;
+         case ERROR_BAD_ARGUMENTS:              return EINVAL;
+         case ERROR_BAD_PATHNAME:               return ENOENT;
+         case ERROR_BUSY:                       return EBUSY;
+         case ERROR_ALREADY_EXISTS:             return EALREADY;
+         case ERROR_FILENAME_EXCED_RANGE:       return ENAMETOOLONG;
+         case ERROR_BAD_FILE_TYPE:              return EBADF;
+         case ERROR_FILE_TOO_LARGE:             return ENAMETOOLONG;
+         case ERROR_BAD_PIPE:                   return EPIPE;
+         case ERROR_PIPE_BUSY:                  return EBUSY;
+         case ERROR_NO_DATA:                    return ENODATA;
+         case WAIT_TIMEOUT:                     return ETIMEDOUT;
+         case ERROR_DIRECTORY:                  return ENOENT;
+         case ERROR_NOT_OWNER:                  return EPERM;
+         default: return EINVAL;
+      }
+      return EINVAL;
+   }
 #endif
 

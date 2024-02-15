@@ -32,106 +32,13 @@
 #include <array>
 
 #include "rmlib/xplat.h"
-
-namespace rmlib::status {
-   
-   constexpr size_t MAX_ERROR_STRING = 256;
-}
-
-#if defined(XPLAT_OS_WIN)
-   #include <windows.h>
-
-   using uerrno_t = unsigned int;
-   using ierrno_t = errno_t;
-
-   inline std::string GetErrorMessage(uerrno_t err) noexcept
-   {
-      std::string str;
-      const DWORD MAX_ERROR_STRING = 1024; 
-      std::array<char, MAX_ERROR_STRING> errorMessageBuffer;
-      DWORD len = FormatMessageA(FORMAT_MESSAGE_FROM_SYSTEM, nullptr, err, 0, errorMessageBuffer.data(), MAX_ERROR_STRING, nullptr);
-      if (len > 0)
-      {
-         str = errorMessageBuffer.data();
-      }
-      else
-      {
-         str = "Failed to retrieve error message. Error ";
-         str += std::to_string(err);
-      }
-      return str;
-   }
-
-   inline std::string GetErrorMessage(ierrno_t err) noexcept
-   {
-      const unsigned MAX_ERROR_STRING = 1024;
-      std::array<char, MAX_ERROR_STRING> text;
-      strerror_s(text.data(), text.size(), err);
-      return std::string(text.data());
-
-   }
-
-   inline std::string GetErrorMessage(DWORD err) noexcept
-   {
-      std::string str;
-      const DWORD MAX_ERROR_STRING = 1024;
-      std::array<char, MAX_ERROR_STRING> errorMessageBuffer;
-      DWORD len = FormatMessageA(FORMAT_MESSAGE_FROM_SYSTEM, nullptr, err, 0, errorMessageBuffer.data(), MAX_ERROR_STRING, nullptr);
-      if (len > 0)
-      {
-         str = errorMessageBuffer.data();
-      }
-      else
-      {
-         str = "Failed to retrieve error message. Error ";
-         str += std::to_string(err);
-      }
-      return str;
-   }
-
-   inline std::string GetLastErrorMessage() noexcept
-   {
-      return GetErrorMessage(GetLastError());
-   }
-#else
-   #if !defined(errno_t)
-      using errno_t = int;
-   #endif
-
-   inline errno_t GetLastError() noexcept
-   {
-      return errno;
-   }
-
-   inline std::string GetErrorMessage(errno_t err) noexcept
-   {
-      return std::string(strerror(err));
-   }
-
-   inline std::string GetLastErrorMessage() noexcept
-   {
-      return GetErrorMessage(GetLastError());
-   }
-
-#endif
+#include "rmlib/utility.h"
 
 namespace rmlib {
-   
-   namespace status {
-      
-      constexpr int OK = 0;
-      constexpr int NOTOK = -1;
-   
-      typedef int (*STATUS_FUNC)();
 
-      inline int get_last_error() noexcept
-      {
-         return GetLastError();
-      }
-      
-   } // namespace status
-   
-   template <typename T = int, T OK = status::OK, T NOK = status::NOTOK, status::STATUS_FUNC FUNC = status::get_last_error>
+   constexpr size_t MAX_REASON_MESSAGE_SIZE = 256;
+
+   template <typename T, T OK, T NOK, T(*LAST_ERROR)()>
    class status_base_t
    {
       T errno_{};
@@ -139,7 +46,7 @@ namespace rmlib {
 
    public:
       using error_t = T;
-      
+
       status_base_t() = default;
       status_base_t(const status_base_t&) = default;
       status_base_t(status_base_t&&) noexcept = default;
@@ -147,17 +54,17 @@ namespace rmlib {
       status_base_t& operator=(status_base_t&&) noexcept = default;
 
       status_base_t(error_t err) noexcept
-         : errno_{ err == NOK ? FUNC() : err }
+         : errno_{ err == NOK ? last_error() : err }
       {}
 
       status_base_t(error_t err, const std::string& reason) noexcept
-         : errno_{ err == NOK ? FUNC() : err }
+         : errno_{ err == NOK ? last_error() : err }
          , reason_{ reason }
       {}
 
       status_base_t& operator=(error_t err) noexcept
       {
-         this->errno_ = (err == NOK) ? FUNC() : err;
+         this->errno_ = (err == NOK) ? last_error() : err;
          reason_.clear();
          return *this;
       }
@@ -186,16 +93,21 @@ namespace rmlib {
 
       status_base_t& reset(error_t err) noexcept
       {
-         this->errno_ = (err == NOK) ? FUNC() : err;
+         this->errno_ = (err == NOK) ? last_error() : err;
          reason_.clear();
          return *this;
       }
 
       status_base_t& reset(error_t err, const std::string& reason) noexcept
       {
-         this->errno_ = (err == NOK) ? FUNC() : err;
+         this->errno_ = (err == NOK) ? last_error() : err;
          reason_ = reason;
          return *this;
+      }
+
+      error_t last_error() const noexcept
+      {
+         return LAST_ERROR();
       }
 
       [[nodiscard]]
@@ -204,12 +116,14 @@ namespace rmlib {
          if (this->errno_ != OK)
          {
             if (!reason_.empty()) return reason_;
-            return GetErrorMessage(this->errno_);
+            std::array<char, MAX_REASON_MESSAGE_SIZE> buffer{};
+            strerror_s(buffer.data(), buffer.size(), this->errno_);
+            return buffer.data();
          }
          return "No errors detected";
       }
    }; // class status_base_t
-   
-   using status_t = status_base_t<>;
+
+   using status_t = status_base_t<int, 0, -1, []() { return errno; } > ;
 
 } // namespace rmlib
