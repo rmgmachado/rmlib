@@ -33,6 +33,7 @@
 \*****************************************************************************/
 #if defined(_WIN32) || defined(_WIN64)
    #define XPLAT_OS_WIN
+   #define XPLAT_OS_WINDOWS
    #define XPLAT_OS_SUPPORTED
    #define XPLAT_OS_NAME   "Windows"
    #if defined(_WIN32)
