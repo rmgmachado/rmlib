@@ -48,7 +48,7 @@
 *  Windows specific definitionss
 *
 \*****************************************************************************/
-#if defined(XPLAT_OS_WIN)
+#if defined(XPLAT_WINSOCK)
    #include <winsock2.h>
    #include <ws2tcpip.h>
 
@@ -66,7 +66,7 @@
 *  Linux specific definitions
 *
 \*****************************************************************************/
-#if defined(XPLAT_OS_LINUX)
+#if !defined(XPLAT_WINSOCK)
    #include <sys/types.h>
    #include <sys/socket.h>
    #include <sys/ioctl.h>
@@ -1194,7 +1194,7 @@ namespace rmlib {
 
    namespace utility {
 
-#if defined(XPLAT_OS_WIN)
+#if defined(XPLAT_WINSOCK)
       /**********************************************************************\
       *
       *  winsock_init_t
@@ -1230,7 +1230,7 @@ namespace rmlib {
       }; // class socket_init_t
 
       inline const static winsock_init_t socket_startup_;
-#endif
+#endif // XPLAT_WINSOCK
 
       class openssl_t
       {

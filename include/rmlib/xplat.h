@@ -98,6 +98,7 @@
    #define XPLAT_CC_MSVC      _MSC_VER   
    #define XPLAT_CC_SUPPORTED 
    #define XPLAT_CC_NAME      "Visual Studio"
+   #define XPLAT_WINSOCK
 #endif
 
 #if defined(__GCC__)
