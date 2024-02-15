@@ -60,7 +60,7 @@
 
    inline bool file_exists(const char* filepath) noexcept
    {
-      if (!filepath) return false;)
+      if (!filepath) return false;
       return access(filepath, F_OK) != -1;
    }
 #endif
@@ -164,7 +164,6 @@ namespace rmlib {
       status_t read(T& buffer, size_t size, size_t& bytes_read) noexcept
       {
          status_t status;
-         size_t bytes_read;
          if (handle_ == nullptr) return status.reset(EBADF);
          buffer.resize(size);
          status = read(buffer.data(), buffer.size(), bytes_read);
