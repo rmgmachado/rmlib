@@ -51,7 +51,7 @@
    #define _fseeki64 fseek
    #define remove(s) unlink(s)
 
-   inline errno_t fopen_s(FILE** file, const char* filename, const char* mode) noexcept
+   inline int fopen_s(FILE** file, const char* filename, const char* mode) noexcept
    {
       *file = fopen(filename, mode);
       return *file ? 0 : errno;

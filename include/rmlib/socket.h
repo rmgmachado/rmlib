@@ -91,7 +91,6 @@
    inline int WSAPoll(LPWSAPOLLFD fdArray, nfds_t nfds, int timeout) { return ::poll(fdArray, nfds, timeout); }
    inline void ZeroMemory(void* ptr, size_t size) { memset(ptr, '\0', size); }
    inline int epoll_close(HANDLE ephnd) { return close(ephnd); }
-   inline void strerror_s(char* buffer, size_t size, int error) { strerror_r(error, buffer, size); }
 
    constexpr int INVALID_SOCKET = -1;
    constexpr int SOCKET_ERROR = -1;
