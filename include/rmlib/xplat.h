@@ -149,7 +149,7 @@
    #include <string.h>
    #include <cerrno>
 
-   inline errno_t strerror_s(char* buf, size_t buflen, int errnum) noexcept
+   inline int strerror_s(char* buf, size_t buflen, int errnum) noexcept
    {
       if (!buf || buflen == 0) return EINVAL;
       char* str = strerror_r(errnum, buf, buflen);
@@ -158,15 +158,6 @@
          strncpy(buf, str, buflen);
          buf[buflen - 1] = '\0';
       }
-      return 0;
-   }
-
-   inline errno_t fopen_s(FILE** pfd, const char* filename, const char* mode) noexcept
-   {
-      if (!pfd || !filename || !mode) return EINVAL;
-      FILE* fd = fopen(filename, mode);
-      if (!fd) return errno;
-      *pfd = fd;
       return 0;
    }
 
